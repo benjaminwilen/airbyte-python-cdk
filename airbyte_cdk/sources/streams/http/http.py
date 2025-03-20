@@ -5,7 +5,17 @@
 import logging
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import Any, Callable, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Tuple,
+    Union,
+)
 from urllib.parse import urljoin
 
 import requests
@@ -40,6 +50,8 @@ from airbyte_cdk.sources.utils.types import JsonType
 # list of all possible HTTP methods which can be used for sending of request bodies
 BODY_REQUEST_METHODS = ("GET", "POST", "PUT", "PATCH")
 
+luigi_logger = logging.getLogger("luigi-interface")
+
 
 class HttpStream(Stream, CheckpointMixin, ABC):
     """
@@ -52,7 +64,9 @@ class HttpStream(Stream, CheckpointMixin, ABC):
     )
 
     def __init__(
-        self, authenticator: Optional[AuthBase] = None, api_budget: Optional[APIBudget] = None
+        self,
+        authenticator: Optional[AuthBase] = None,
+        api_budget: Optional[APIBudget] = None,
     ):
         self._exit_on_rate_limit: bool = False
         self._http_client = HttpClient(
@@ -164,7 +178,9 @@ class HttpStream(Stream, CheckpointMixin, ABC):
         return 5
 
     @abstractmethod
-    def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
+    def next_page_token(
+        self, response: requests.Response
+    ) -> Optional[Mapping[str, Any]]:
         """
         Override this method to define a pagination strategy.
 
@@ -271,7 +287,9 @@ class HttpStream(Stream, CheckpointMixin, ABC):
         :return: An iterable containing the parsed response
         """
 
-    def get_backoff_strategy(self) -> Optional[Union[BackoffStrategy, List[BackoffStrategy]]]:
+    def get_backoff_strategy(
+        self,
+    ) -> Optional[Union[BackoffStrategy, List[BackoffStrategy]]]:
         """
         Used to initialize Adapter to avoid breaking changes.
         If Stream has a `backoff_time` method implementation, we know this stream uses old (pre-HTTPClient) backoff handlers and thus an adapter is needed.
@@ -366,7 +384,9 @@ class HttpStream(Stream, CheckpointMixin, ABC):
         stream_state: Optional[Mapping[str, Any]] = None,
     ) -> Iterable[StreamData]:
         # A cursor_field indicates this is an incremental stream which offers better checkpointing than RFR enabled via the cursor
-        if self.cursor_field or not isinstance(self.get_cursor(), ResumableFullRefreshCursor):
+        if self.cursor_field or not isinstance(
+            self.get_cursor(), ResumableFullRefreshCursor
+        ):
             yield from self._read_pages(
                 lambda req, res, state, _slice: self.parse_response(
                     res, stream_slice=_slice, stream_state=state
@@ -403,7 +423,9 @@ class HttpStream(Stream, CheckpointMixin, ABC):
         # incremental, but we don't know until runtime if this is a substream. Ideally, a stream should explicitly define
         # its cursor, but because we're trying to automatically apply RFR we're stuck with this logic where we replace the
         # cursor at runtime once we detect this is a substream based on self.has_multiple_slices being reassigned
-        if self.has_multiple_slices and isinstance(self.cursor, ResumableFullRefreshCursor):
+        if self.has_multiple_slices and isinstance(
+            self.cursor, ResumableFullRefreshCursor
+        ):
             self.cursor = SubstreamResumableFullRefreshCursor()
             return self.cursor
         else:
@@ -427,8 +449,12 @@ class HttpStream(Stream, CheckpointMixin, ABC):
         pagination_complete = False
         next_page_token = None
         while not pagination_complete:
-            request, response = self._fetch_next_page(stream_slice, stream_state, next_page_token)
-            yield from records_generator_fn(request, response, stream_state, stream_slice)
+            request, response = self._fetch_next_page(
+                stream_slice, stream_state, next_page_token
+            )
+            yield from records_generator_fn(
+                request, response, stream_state, stream_slice
+            )
 
             next_page_token = self.next_page_token(response)
             if not next_page_token:
@@ -464,8 +490,12 @@ class HttpStream(Stream, CheckpointMixin, ABC):
         stream_state = stream_state or {}
         next_page_token = cursor_slice or None
 
-        request, response = self._fetch_next_page(remaining_slice, stream_state, next_page_token)
-        yield from records_generator_fn(request, response, stream_state, remaining_slice)
+        request, response = self._fetch_next_page(
+            remaining_slice, stream_state, next_page_token
+        )
+        yield from records_generator_fn(
+            request, response, stream_state, remaining_slice
+        )
 
         next_page_token = self.next_page_token(response) or {
             "__ab_full_refresh_sync_complete": True
@@ -473,7 +503,9 @@ class HttpStream(Stream, CheckpointMixin, ABC):
 
         cursor = self.get_cursor()
         if cursor:
-            cursor.close_slice(StreamSlice(cursor_slice=next_page_token, partition=partition))
+            cursor.close_slice(
+                StreamSlice(cursor_slice=next_page_token, partition=partition)
+            )
 
         # Always return an empty generator just in case no records were ever yielded
         yield from []
@@ -547,7 +579,6 @@ class HttpStream(Stream, CheckpointMixin, ABC):
             log_formatter=self.get_log_formatter(),
             exit_on_rate_limit=self.exit_on_rate_limit,
         )
-
         return request, response
 
     def get_log_formatter(self) -> Optional[Callable[[requests.Response], Any]]:
@@ -565,9 +596,7 @@ class HttpSubStream(HttpStream, ABC):
         """
         super().__init__(**kwargs)
         self.parent = parent
-        self.has_multiple_slices = (
-            True  # Substreams are based on parent records which implies there are multiple slices
-        )
+        self.has_multiple_slices = True  # Substreams are based on parent records which implies there are multiple slices
 
         # There are three conditions that dictate if RFR should automatically be applied to a stream
         # 1. Streams that explicitly initialize their own cursor should defer to it and not automatically apply RFR
@@ -611,7 +640,9 @@ class HttpStreamAdapterBackoffStrategy(BackoffStrategy):
 
     def backoff_time(
         self,
-        response_or_exception: Optional[Union[requests.Response, requests.RequestException]],
+        response_or_exception: Optional[
+            Union[requests.Response, requests.RequestException]
+        ],
         attempt_count: int,
     ) -> Optional[float]:
         return self.stream.backoff_time(response_or_exception)  # type: ignore # noqa  # HttpStream.backoff_time has been deprecated
@@ -627,7 +658,8 @@ class HttpStreamAdapterHttpStatusErrorHandler(HttpStatusErrorHandler):
         super().__init__(**kwargs)
 
     def interpret_response(
-        self, response_or_exception: Optional[Union[requests.Response, Exception]] = None
+        self,
+        response_or_exception: Optional[Union[requests.Response, Exception]] = None,
     ) -> ErrorResolution:
         if isinstance(response_or_exception, Exception):
             return super().interpret_response(response_or_exception)
@@ -665,7 +697,9 @@ class HttpStreamAdapterHttpStatusErrorHandler(HttpStatusErrorHandler):
                         error_message=f"Response status code: {response_or_exception.status_code}. Ignoring...",
                     )
         else:
-            self._logger.error(f"Received unexpected response type: {type(response_or_exception)}")
+            self._logger.error(
+                f"Received unexpected response type: {type(response_or_exception)}"
+            )
             return ErrorResolution(
                 response_action=ResponseAction.FAIL,
                 failure_type=FailureType.system_error,

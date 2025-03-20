@@ -8,7 +8,17 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property, lru_cache
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Union,
+)
 
 from typing_extensions import deprecated
 
@@ -34,7 +44,10 @@ from airbyte_cdk.sources.streams.checkpoint import (
 from airbyte_cdk.sources.types import StreamSlice
 
 # list of all possible HTTP methods which can be used for sending of request bodies
-from airbyte_cdk.sources.utils.schema_helpers import InternalConfig, ResourceSchemaLoader
+from airbyte_cdk.sources.utils.schema_helpers import (
+    InternalConfig,
+    ResourceSchemaLoader,
+)
 from airbyte_cdk.sources.utils.slice_logger import DebugSliceLogger, SliceLogger
 from airbyte_cdk.sources.utils.transform import TransformConfig, TypeTransformer
 
@@ -178,7 +191,10 @@ class Stream(ABC):
 
         should_checkpoint = bool(state_manager)
         checkpoint_reader = self._get_checkpoint_reader(
-            logger=logger, cursor_field=cursor_field, sync_mode=sync_mode, stream_state=stream_state
+            logger=logger,
+            cursor_field=cursor_field,
+            sync_mode=sync_mode,
+            stream_state=stream_state,
         )
 
         next_slice = checkpoint_reader.next()
@@ -249,10 +265,14 @@ class Stream(ABC):
 
         checkpoint = checkpoint_reader.get_checkpoint()
         if should_checkpoint and checkpoint is not None:
-            airbyte_state_message = self._checkpoint_state(checkpoint, state_manager=state_manager)
+            airbyte_state_message = self._checkpoint_state(
+                checkpoint, state_manager=state_manager
+            )
             yield airbyte_state_message
 
-    def read_only_records(self, state: Optional[Mapping[str, Any]] = None) -> Iterable[StreamData]:
+    def read_only_records(
+        self, state: Optional[Mapping[str, Any]] = None
+    ) -> Iterable[StreamData]:
         """
         Helper method that performs a read on a stream with an optional state and emits records. If the parent stream supports
         incremental, this operation does not update the stream's internal state (if it uses the modern state setter/getter)
@@ -273,9 +293,9 @@ class Stream(ABC):
             configured_stream=configured_stream,
             logger=self.logger,
             slice_logger=DebugSliceLogger(),
-            stream_state=dict(state)
-            if state
-            else {},  # read() expects MutableMapping instead of Mapping which is used more often
+            stream_state=(
+                dict(state) if state else {}
+            ),  # read() expects MutableMapping instead of Mapping which is used more often
             state_manager=None,
             internal_config=InternalConfig(),  # type: ignore [call-arg]
         )
@@ -301,7 +321,9 @@ class Stream(ABC):
         Override as needed.
         """
         # TODO show an example of using pydantic to define the JSON schema, or reading an OpenAPI spec
-        return ResourceSchemaLoader(package_name_from_class(self.__class__)).get_schema(self.name)
+        return ResourceSchemaLoader(package_name_from_class(self.__class__)).get_schema(
+            self.name
+        )
 
     def as_airbyte_stream(self) -> AirbyteStream:
         stream = AirbyteStream(
@@ -348,7 +370,10 @@ class Stream(ABC):
             # to structure stream state in a very specific way. We also can't check for issubclass(HttpSubStream) because
             # not all substreams implement the interface and it would be a circular dependency so we use parent as a surrogate
             return False
-        elif hasattr(type(self), "state") and getattr(type(self), "state").fset is not None:
+        elif (
+            hasattr(type(self), "state")
+            and getattr(type(self), "state").fset is not None
+        ):
             # Modern case where a stream manages state using getter/setter
             return True
         else:
@@ -357,7 +382,11 @@ class Stream(ABC):
             return type(self).get_updated_state != Stream.get_updated_state
 
     def _wrapped_cursor_field(self) -> List[str]:
-        return [self.cursor_field] if isinstance(self.cursor_field, str) else self.cursor_field
+        return (
+            [self.cursor_field]
+            if isinstance(self.cursor_field, str)
+            else self.cursor_field
+        )
 
     @property
     def cursor_field(self) -> Union[str, List[str]]:
@@ -438,7 +467,9 @@ class Stream(ABC):
     #     "Please use explicit state property instead, see `IncrementalMixin` docs."
     # )
     def get_updated_state(
-        self, current_stream_state: MutableMapping[str, Any], latest_record: Mapping[str, Any]
+        self,
+        current_stream_state: MutableMapping[str, Any],
+        latest_record: Mapping[str, Any],
     ) -> MutableMapping[str, Any]:
         """DEPRECATED. Please use explicit state property instead, see `IncrementalMixin` docs.
 
@@ -483,7 +514,9 @@ class Stream(ABC):
         if mappings_or_slices == [None]:
             mappings_or_slices = [{}]
 
-        slices_iterable_copy, iterable_for_detecting_format = itertools.tee(mappings_or_slices, 2)
+        slices_iterable_copy, iterable_for_detecting_format = itertools.tee(
+            mappings_or_slices, 2
+        )
         stream_classification = self._classify_stream(
             mappings_or_slices=iterable_for_detecting_format
         )
@@ -503,13 +536,16 @@ class Stream(ABC):
 
         if cursor and stream_classification.is_legacy_format:
             return LegacyCursorBasedCheckpointReader(
-                stream_slices=slices_iterable_copy, cursor=cursor, read_state_from_cursor=True
+                stream_slices=slices_iterable_copy,
+                cursor=cursor,
+                read_state_from_cursor=True,
             )
         elif cursor:
             return CursorBasedCheckpointReader(
                 stream_slices=slices_iterable_copy,
                 cursor=cursor,
-                read_state_from_cursor=checkpoint_mode == CheckpointMode.RESUMABLE_FULL_REFRESH,
+                read_state_from_cursor=checkpoint_mode
+                == CheckpointMode.RESUMABLE_FULL_REFRESH,
             )
         elif checkpoint_mode == CheckpointMode.RESUMABLE_FULL_REFRESH:
             # Resumable full refresh readers rely on the stream state dynamically being updated during pagination and does
@@ -568,7 +604,9 @@ class Stream(ABC):
         except StopIteration:
             # If the stream has no slices, the format ultimately does not matter since no data will get synced. This is technically
             # a valid case because it is up to the stream to define its slicing behavior
-            return StreamClassification(is_legacy_format=False, has_multiple_slices=False)
+            return StreamClassification(
+                is_legacy_format=False, has_multiple_slices=False
+            )
 
         if slice_has_value:
             # If the first slice contained a partition value from the result of stream_slices(), this is a substream that might
@@ -580,7 +618,9 @@ class Stream(ABC):
         try:
             # If stream_slices() returns multiple slices, this is also a substream that can potentially generate empty slices
             next(mappings_or_slices)
-            return StreamClassification(is_legacy_format=is_legacy_format, has_multiple_slices=True)
+            return StreamClassification(
+                is_legacy_format=is_legacy_format, has_multiple_slices=True
+            )
         except StopIteration:
             # If the result of stream_slices() only returns a single empty stream slice, then we know this is a regular stream
             return StreamClassification(
@@ -619,13 +659,17 @@ class Stream(ABC):
                 elif isinstance(component, list):
                     wrapped_keys.append(component)
                 else:
-                    raise ValueError(f"Element must be either list or str. Got: {type(component)}")
+                    raise ValueError(
+                        f"Element must be either list or str. Got: {type(component)}"
+                    )
             return wrapped_keys
         else:
             raise ValueError(f"Element must be either list or str. Got: {type(keys)}")
 
     def _observe_state(
-        self, checkpoint_reader: CheckpointReader, stream_state: Optional[Mapping[str, Any]] = None
+        self,
+        checkpoint_reader: CheckpointReader,
+        stream_state: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """
         Convenience method that attempts to read the Stream's state using the recommended way of connector's managing their
@@ -670,7 +714,9 @@ class Stream(ABC):
 
     @configured_json_schema.setter
     def configured_json_schema(self, json_schema: Dict[str, Any]) -> None:
-        self._configured_json_schema = self._filter_schema_invalid_properties(json_schema)
+        self._configured_json_schema = self._filter_schema_invalid_properties(
+            json_schema
+        )
 
     def _filter_schema_invalid_properties(
         self, configured_catalog_json_schema: Dict[str, Any]
@@ -700,4 +746,7 @@ class Stream(ABC):
                 stream_schema_properties[configured_schema_property]
             )
 
-        return {**configured_catalog_json_schema, "properties": valid_configured_schema_properties}
+        return {
+            **configured_catalog_json_schema,
+            "properties": valid_configured_schema_properties,
+        }

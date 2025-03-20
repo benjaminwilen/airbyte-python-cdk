@@ -23,7 +23,11 @@ from airbyte_cdk.models import (
 )
 from airbyte_cdk.sources.http_config import MAX_CONNECTION_POOL_SIZE
 from airbyte_cdk.sources.message import MessageRepository
-from airbyte_cdk.sources.streams.call_rate import APIBudget, CachedLimiterSession, LimiterSession
+from airbyte_cdk.sources.streams.call_rate import (
+    APIBudget,
+    CachedLimiterSession,
+    LimiterSession,
+)
 from airbyte_cdk.sources.streams.http.error_handlers import (
     BackoffStrategy,
     DefaultBackoffStrategy,
@@ -52,6 +56,8 @@ from airbyte_cdk.utils.stream_status_utils import (
     as_airbyte_message as stream_status_as_airbyte_message,
 )
 from airbyte_cdk.utils.traced_exception import AirbyteTracedException
+
+kube_logger = logging.getLogger("kubernetes-job")
 
 BODY_REQUEST_METHODS = ("GET", "POST", "PUT", "PATCH")
 
@@ -87,7 +93,9 @@ class HttpClient:
         session: Optional[Union[requests.Session, requests_cache.CachedSession]] = None,
         authenticator: Optional[AuthBase] = None,
         use_cache: bool = False,
-        backoff_strategy: Optional[Union[BackoffStrategy, List[BackoffStrategy]]] = None,
+        backoff_strategy: Optional[
+            Union[BackoffStrategy, List[BackoffStrategy]]
+        ] = None,
         error_message_parser: Optional[ErrorMessageParser] = None,
         disable_retries: bool = False,
         message_repository: Optional[MessageRepository] = None,
@@ -102,7 +110,8 @@ class HttpClient:
             self._session.mount(
                 "https://",
                 requests.adapters.HTTPAdapter(
-                    pool_connections=MAX_CONNECTION_POOL_SIZE, pool_maxsize=MAX_CONNECTION_POOL_SIZE
+                    pool_connections=MAX_CONNECTION_POOL_SIZE,
+                    pool_maxsize=MAX_CONNECTION_POOL_SIZE,
                 ),
             )
         if isinstance(authenticator, AuthBase):
@@ -153,7 +162,10 @@ class HttpClient:
             # * `If the application running SQLite crashes, the data will be safe, but the database [might become corrupted](https://www.sqlite.org/howtocorrupt.html#cfgerr) if the operating system crashes or the computer loses power before that data has been written to the disk surface.` in [this description](https://www.sqlite.org/pragma.html#pragma_synchronous).
             backend = requests_cache.SQLiteCache(sqlite_path, fast_save=True, wal=True)
             return CachedLimiterSession(
-                sqlite_path, backend=backend, api_budget=self._api_budget, match_headers=True
+                sqlite_path,
+                backend=backend,
+                api_budget=self._api_budget,
+                match_headers=True,
             )
         else:
             return LimiterSession(api_budget=self._api_budget)
@@ -182,7 +194,9 @@ class HttpClient:
         duplicate_keys_with_same_value = {
             k for k in query_dict.keys() if str(params.get(k)) == str(query_dict[k])
         }
-        return {k: v for k, v in params.items() if k not in duplicate_keys_with_same_value}
+        return {
+            k: v for k, v in params.items() if k not in duplicate_keys_with_same_value
+        }
 
     def _create_prepared_request(
         self,
@@ -198,7 +212,12 @@ class HttpClient:
             query_params = self._dedupe_query_params(url, params)
         else:
             query_params = params or {}
-        args = {"method": http_method, "url": url, "headers": headers, "params": query_params}
+        args = {
+            "method": http_method,
+            "url": url,
+            "headers": headers,
+            "params": query_params,
+        }
         if http_method.upper() in BODY_REQUEST_METHODS:
             if json and data:
                 raise RequestBodyException(
@@ -259,10 +278,12 @@ class HttpClient:
         max_tries = max(0, max_retries) + 1
         max_time = self._max_time
 
-        user_backoff_handler = user_defined_backoff_handler(max_tries=max_tries, max_time=max_time)(
-            self._send
+        user_backoff_handler = user_defined_backoff_handler(
+            max_tries=max_tries, max_time=max_time
+        )(self._send)
+        rate_limit_backoff_handler = rate_limit_default_backoff_handler(
+            max_tries=max_tries
         )
-        rate_limit_backoff_handler = rate_limit_default_backoff_handler(max_tries=max_tries)
         backoff_handler = http_client_default_backoff_handler(
             max_tries=max_tries, max_time=max_time
         )
@@ -287,12 +308,18 @@ class HttpClient:
             self._request_attempt_count[request] = 1
         else:
             self._request_attempt_count[request] += 1
-            if hasattr(self._session, "auth") and isinstance(self._session.auth, AuthBase):
+            if hasattr(self._session, "auth") and isinstance(
+                self._session.auth, AuthBase
+            ):
                 self._session.auth(request)
 
         self._logger.debug(
             "Making outbound API request",
-            extra={"headers": request.headers, "url": request.url, "request_body": request.body},
+            extra={
+                "headers": request.headers,
+                "url": request.url,
+                "request_body": request.body,
+            },
         )
 
         response: Optional[requests.Response] = None
@@ -395,11 +422,17 @@ class HttpClient:
         # Emit stream status RUNNING with the reason RATE_LIMITED to log that the rate limit has been reached
         if error_resolution.response_action == ResponseAction.RATE_LIMITED:
             # TODO: Update to handle with message repository when concurrent message repository is ready
-            reasons = [AirbyteStreamStatusReason(type=AirbyteStreamStatusReasonType.RATE_LIMITED)]
+            reasons = [
+                AirbyteStreamStatusReason(
+                    type=AirbyteStreamStatusReasonType.RATE_LIMITED
+                )
+            ]
             message = orjson.dumps(
                 AirbyteMessageSerializer.dump(
                     stream_status_as_airbyte_message(
-                        StreamDescriptor(name=self._name), AirbyteStreamStatus.RUNNING, reasons
+                        StreamDescriptor(name=self._name),
+                        AirbyteStreamStatus.RUNNING,
+                        reasons,
                     )
                 )
             ).decode()
@@ -417,9 +450,7 @@ class HttpClient:
                 )
                 error_message = f"'{request.method}' request to '{request.url}' failed with status code '{response.status_code}' and error message: '{self._error_message_parser.parse_response_error_message(response)}'. {filtered_response_message}"
             else:
-                error_message = (
-                    f"'{request.method}' request to '{request.url}' failed with exception: '{exc}'"
-                )
+                error_message = f"'{request.method}' request to '{request.url}' failed with exception: '{exc}'"
 
             # ensure the exception message is emitted before raised
             self._logger.error(error_message)
@@ -510,7 +541,6 @@ class HttpClient:
         """
         Prepares and sends request and return request and response objects.
         """
-
         request: requests.PreparedRequest = self._create_prepared_request(
             http_method=http_method,
             url=url,
@@ -521,6 +551,19 @@ class HttpClient:
             data=data,
         )
 
+        self._logger.info(
+            "[BEN] Request: %s %s | Headers: %s | Body: %s",
+            request.method,
+            request.url,
+            request.headers,
+            (
+                request.body.decode("utf-8")
+                if isinstance(request.body, bytes)
+                else request.body
+            ),
+        )
+        self._logger.info(f"[BEN] Request KWARGS: {request_kwargs}")
+        self._logger.info(f"[BEN] Exit on Rate Limit: {exit_on_rate_limit}")
         response: requests.Response = self._send_with_retry(
             request=request,
             request_kwargs=request_kwargs,
