@@ -303,6 +303,23 @@ class HttpClient:
         except requests.RequestException as e:
             exc = e
 
+        try:
+            requests.get("https://httpbin.org/get/1")
+        except Exception as e:
+            self._logger.debug(f"First request failed: {e}")
+
+        try:
+            test_request = requests.Request("GET", "https://httpbin.org/get/2")
+            prepared_request = self._session.prepare_request(test_request)
+            self._session.send(prepared_request)
+        except Exception as e:
+            self._logger.debug(f"Second request failed: {e}")
+
+        try:
+            self._session.get("https://httpbin.org/get/3")
+        except Exception as e:
+            self._logger.debug(f"Third request failed: {e}")
+
         error_resolution: ErrorResolution = self._error_handler.interpret_response(
             response if response is not None else exc
         )
